@@ -1,0 +1,84 @@
+name: Build image with Paketo content hash
+
+on:
+  push:
+    branches: ["**"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/spring-kotlin-paketo-demo
+  BUILDER_IMAGE: paketobuildpacks/builder-jammy-base
+  BP_JVM_VERSION: "21"
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute content hash
+        id: content
+        run: |
+          HASH=$(
+            {
+              echo "builder=${BUILDER_IMAGE}"
+              echo "BP_JVM_VERSION=${BP_JVM_VERSION}"
+
+              sha256sum pom.xml
+
+              find src -type f -print0 \
+                | sort -z \
+                | xargs -0 sha256sum
+            } | sha256sum | cut -d' ' -f1
+          )
+
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Content hash: $HASH"
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io \
+              -u "${{ github.actor }}" \
+              --password-stdin
+
+      - name: Check whether content image exists
+        id: exists
+        run: |
+          if docker buildx imagetools inspect "${IMAGE_NAME}:content-${{ steps.content.outputs.hash }}" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Image already exists"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Image does not exist yet"
+          fi
+
+      - name: Install pack CLI
+        if: steps.exists.outputs.exists != 'true'
+        uses: buildpacks/github-actions/setup-pack@v5.8.10
+
+      - name: Build image with Paketo
+        if: steps.exists.outputs.exists != 'true'
+        run: |
+          pack build "${IMAGE_NAME}:content-${{ steps.content.outputs.hash }}" \
+            --builder "${BUILDER_IMAGE}" \
+            --env "BP_JVM_VERSION=${BP_JVM_VERSION}" \
+            --publish
+
+      - name: Add git tag to newly built image
+        if: steps.exists.outputs.exists != 'true'
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE_NAME}:git-${GITHUB_SHA}" \
+            "${IMAGE_NAME}:content-${{ steps.content.outputs.hash }}"
+
+      - name: Retag existing image for this git commit
+        if: steps.exists.outputs.exists == 'true'
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE_NAME}:git-${GITHUB_SHA}" \
+            "${IMAGE_NAME}:content-${{ steps.content.outputs.hash }}"

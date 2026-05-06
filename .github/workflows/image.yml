@@ -25,24 +25,24 @@ jobs:
           OWNER="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
           echo "IMAGE_NAME=ghcr.io/${OWNER}/spring-kotlin-paketo-demo" >> "$GITHUB_ENV"
 
-            - name: Compute content hash
-              id: content
-              run: |
-                HASH=$(
-                  {
-                    echo "builder=${BUILDER_IMAGE}"
-                    echo "BP_JVM_VERSION=${BP_JVM_VERSION}"
+      - name: Compute content hash
+        id: content
+        run: |
+          HASH=$(
+            {
+              echo "builder=${BUILDER_IMAGE}"
+              echo "BP_JVM_VERSION=${BP_JVM_VERSION}"
 
-                    sha256sum pom.xml
+              sha256sum pom.xml
 
-                    find src -type f -print0 \
-                      | sort -z \
-                      | xargs -0 sha256sum
-                  } | sha256sum | cut -d' ' -f1
-                )
+              find src -type f -print0 \
+                | sort -z \
+                | xargs -0 sha256sum
+            } | sha256sum | cut -d' ' -f1
+          )
 
-                echo "hash=$HASH" >> "$GITHUB_OUTPUT"
-                echo "Content hash: $HASH"
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Content hash: $HASH"
 
       - name: Login to GHCR
         run: |
